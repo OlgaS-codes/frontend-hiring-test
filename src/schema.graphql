@@ -1,0 +1,44 @@
+scalar MessagesCursor
+
+enum MessageStatus {
+  Sending
+  Sent
+  Read
+}
+
+type Message {
+  id: ID!
+  text: String!
+  status: MessageStatus!
+  updatedAt: String!
+}
+
+type MessageEdge {
+  node: Message!
+  cursor: MessagesCursor!
+}
+
+type MessagePageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: MessagesCursor
+  endCursor: MessagesCursor
+}
+
+type MessagePage {
+  edges: [MessageEdge!]!
+  pageInfo: MessagePageInfo!
+}
+
+type Query {
+  messages(first: Int, after: MessagesCursor, before: MessagesCursor): MessagePage!
+}
+
+type Mutation {
+  sendMessage(text: String!): Message!
+}
+
+type Subscription {
+  messageAdded: Message!
+  messageUpdated: Message!
+}
