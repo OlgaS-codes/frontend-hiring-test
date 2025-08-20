@@ -20,3 +20,53 @@ query GetLastPage($first: Int!, $after: MessagesCursor) {
 	}
 }
 `
+
+export const SEND_MESSAGE = gql`
+  mutation sendMessage($text: String!) {
+    sendMessage(text: $text) {
+      	id
+				text
+				status
+				updatedAt
+				sender
+				__typename
+    }
+  }
+`;
+
+export const UPDATE_CACHE_FRAGMENT = gql`
+	fragment MessageData on Message {
+		id
+		text
+		status
+		updatedAt
+		sender
+		__typename
+	}
+`
+
+export const MESSAGE_UPDATED = gql`
+  subscription OnMessageUpdated {
+    messageUpdated {
+      id
+      text
+      status
+      updatedAt
+      sender
+      __typename
+    }
+  }
+`;
+
+export const NEW_MESSAGE = gql`
+	  subscription OnMessageAdded {
+    messageAdded {
+      id
+      text
+      status
+      updatedAt
+      sender
+      __typename
+    }
+  }
+`

@@ -66,3 +66,12 @@ Notes
 - Make sure that pagination works correctly with Apollo Client.
 - Every second mutation sendMessage returns data with a delay. Ensure that the response from the mutation does not overwrite the data in the cache that has been updated via the subscription. You can check the freshness of the data by the updatedAt field in the message.
 - Server-side changes are not required. Your task is to solve all the problems on the client-side.
+
+
+TODOS:
+- add form to handle submit on Enter
+- move hooks to separate hooks
+- add prettier 
+- ~~add load previous messages on scroll up~~
+- loading and error hadle
+- add types
