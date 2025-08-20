@@ -1,8 +1,9 @@
 import React from "react";
 import { ItemContent, Virtuoso } from "react-virtuoso";
 import cn from "clsx";
-import {  type ApolloClient, useApolloClient} from '@apollo/client';
-import {GET_LAST_MESSAGES} from './chat.graphql'
+import {  type ApolloClient, useApolloClient, useMutation, useSubscription} from '@apollo/client';
+import { loadDevMessages } from "@apollo/client/dev";
+import { GET_LAST_MESSAGES, UPDATE_CACHE_FRAGMENT, SEND_MESSAGE, MESSAGE_UPDATED, NEW_MESSAGE } from './chat.graphql'
 import {
   MessageSender,
   type Message,
@@ -56,7 +57,7 @@ const  getLastMessages = async (client: ApolloClient<object>, count = 10): Promi
     allMessages = [...allMessages, ...data.messages.edges];
     hasNextPage = data.messages.pageInfo.hasNextPage;
     cursor = data.messages.pageInfo.endCursor; 
-    console.log({data, allMessages, hasNextPage, cursor});
+
     
   }
 
@@ -70,8 +71,52 @@ export const Chat: React.FC = () => {
 	const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown | null>(null);
+	const [text, setText] = React.useState('');
 
+
+	const onSendMessage = () => {
+		
+		sendMessage({variables: { 
+      text: text
+		}})
+		setText("");
+	}
+	const [sendMessage, { data, loading: sendMessageLoading, error: sendMessageError }] = useMutation(SEND_MESSAGE, {
  
+    update(cache, { data: { sendMessage } }) {
+			const data = cache.readQuery({ query: GET_LAST_MESSAGES, variables: { first: 10, after: null } });
+		
+			if (!data) return;
+		
+			cache.writeQuery({
+				query: GET_LAST_MESSAGES,
+				variables: { first: 10, after: null },
+				data: {
+					messages: {
+						...data.messages,
+						edges: [
+							...data.messages.edges,
+							{
+								__typename: "MessageEdge",
+								cursor: sendMessage.id, 
+								node: sendMessage,
+							},
+						],
+					},
+				},
+			});
+		}		
+  });
+
+  useSubscription(NEW_MESSAGE, {
+    onData: ({ data }) => {
+      const newMessage = data.data?.messageAdded;
+      if (!newMessage) return;
+      setMessages(prev => [...prev, newMessage]);
+    },
+  });
+ 
+	loadDevMessages();
 	React.useEffect(()=>{
 		const fetchLastMessages = async () => {
       try {
@@ -106,7 +151,7 @@ export const Chat: React.FC = () => {
   }
 
 	if (loading) return <p>Loading...</p>;
- console.log({messages});
+
 	
   return (
     <div className={css.root}>
@@ -118,8 +163,10 @@ export const Chat: React.FC = () => {
           type="text"
           className={css.textInput}
           placeholder="Message text"
+					value={text}
+					onChange={e => setText(e.target.value)}
         />
-        <button>Send</button>
+        <button onClick={()=>{onSendMessage()}}>Send</button>
       </div>
     </div>
   );
