@@ -12,13 +12,6 @@ import {
 } from "../__generated__/resolvers-types";
 import css from "./chat.module.css";
 
-// const temp_data: Message[] = Array.from(Array(5), (_, index) => ({
-//   id: String(index),
-//   text: `Message number ${index}`,
-//   status: MessageStatus.Read,
-//   updatedAt: new Date().toISOString(),
-//   sender: index % 2 ? MessageSender.Admin : MessageSender.Customer,
-// }));
 
 const Item: React.FC<Message> = ({ text, sender }) => {
   return (
@@ -72,6 +65,9 @@ export const Chat: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown | null>(null);
 	const [text, setText] = React.useState('');
+	const [loadingMoreOldMessages, setLoadingMoreOldMessages] = React.useState(false);
+	const [hasMoreOldMessages, setHasMoreOldMessages] = React.useState(true);
+	const virtuosoRef = React.useRef<VirtuosoHandle>(null);
 
 	const onSendMessage = () => {
 		
@@ -117,7 +113,7 @@ export const Chat: React.FC = () => {
     },
   });
  
-	loadDevMessages();
+	loadDevMessages();// TODO: remove
 	React.useEffect(()=>{
 		const fetchLastMessages = async () => {
       try {
@@ -145,19 +141,43 @@ export const Chat: React.FC = () => {
     fetchLastMessages();
 	}, [client])
 
-	const virtuosoRef = React.useRef<VirtuosoHandle>(null);
 
-	React.useEffect(() => {
-		if (messages.length === 0) return;
+	const getOldMessages = async () => {
+		if (!hasMoreOldMessages || loadingMoreOldMessages) return;
 	
-		requestAnimationFrame(() => {
-			virtuosoRef.current?.scrollToIndex({
-				index: messages.length - 1,
-				align: "end",
-				behavior: "smooth",
+		setLoadingMoreOldMessages(true);
+		try {
+			const firstMessage = messages[0];
+			const beforeCursor = firstMessage?.id || null;
+	
+		
+
+			const { data }: { data: Query } = await client.query({
+				query: GET_LAST_MESSAGES,
+				variables: { first: 10, before: beforeCursor },
+				fetchPolicy: 'network-only',
 			});
-		});
-	}, [messages]);
+	
+			const newMessages: Message[] = data.messages.edges.map(({ node }) => ({
+				id: String(node.id),
+				text: node.text,
+				status: node.status,
+				updatedAt: node.updatedAt,
+				sender: node.sender,
+			}));
+			
+			setMessages(prev => [...newMessages, ...prev]);	
+			setHasMoreOldMessages(data.messages.pageInfo.hasPreviousPage);
+
+		} catch (err) {
+			console.error(err);
+		} finally {
+			setLoadingMoreOldMessages(false);
+		}
+	};
+
+	const firstItemIndex = React.useMemo(() => 1000 - messages.length, [messages.length]);
+
 
 	if (error) {
     console.log(JSON.stringify(error, null, 2));
@@ -171,11 +191,14 @@ export const Chat: React.FC = () => {
     <div className={css.root}>
       <div className={css.container}>
         <Virtuoso 
+				followOutput="auto"
 				className={css.list} 
 				data={messages} 
 				itemContent={getItem} 
 				ref={virtuosoRef} 
+				firstItemIndex={firstItemIndex}
 				initialTopMostItemIndex={messages.length - 1} 
+				startReached={getOldMessages}
 				/>
       </div>
       <div className={css.footer}>
