@@ -1,9 +1,9 @@
 import React from "react";
-import { ItemContent, Virtuoso } from "react-virtuoso";
+import { ItemContent, Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import cn from "clsx";
 import {  type ApolloClient, useApolloClient, useMutation, useSubscription} from '@apollo/client';
 import { loadDevMessages } from "@apollo/client/dev";
-import { GET_LAST_MESSAGES, UPDATE_CACHE_FRAGMENT, SEND_MESSAGE, MESSAGE_UPDATED, NEW_MESSAGE } from './chat.graphql'
+import { GET_LAST_MESSAGES, SEND_MESSAGE, NEW_MESSAGE } from './chat.graphql'
 import {
   MessageSender,
   type Message,
@@ -73,7 +73,6 @@ export const Chat: React.FC = () => {
   const [error, setError] = React.useState<unknown | null>(null);
 	const [text, setText] = React.useState('');
 
-
 	const onSendMessage = () => {
 		
 		sendMessage({variables: { 
@@ -113,6 +112,8 @@ export const Chat: React.FC = () => {
       const newMessage = data.data?.messageAdded;
       if (!newMessage) return;
       setMessages(prev => [...prev, newMessage]);
+
+			
     },
   });
  
@@ -142,8 +143,21 @@ export const Chat: React.FC = () => {
     };
 
     fetchLastMessages();
-	}, 
-	[client])
+	}, [client])
+
+	const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+
+	React.useEffect(() => {
+		if (messages.length === 0) return;
+	
+		requestAnimationFrame(() => {
+			virtuosoRef.current?.scrollToIndex({
+				index: messages.length - 1,
+				align: "end",
+				behavior: "smooth",
+			});
+		});
+	}, [messages]);
 
 	if (error) {
     console.log(JSON.stringify(error, null, 2));
@@ -156,7 +170,13 @@ export const Chat: React.FC = () => {
   return (
     <div className={css.root}>
       <div className={css.container}>
-        <Virtuoso className={css.list} data={messages} itemContent={getItem} />
+        <Virtuoso 
+				className={css.list} 
+				data={messages} 
+				itemContent={getItem} 
+				ref={virtuosoRef} 
+				initialTopMostItemIndex={messages.length - 1} 
+				/>
       </div>
       <div className={css.footer}>
         <input
@@ -165,6 +185,7 @@ export const Chat: React.FC = () => {
           placeholder="Message text"
 					value={text}
 					onChange={e => setText(e.target.value)}
+          
         />
         <button onClick={()=>{onSendMessage()}}>Send</button>
       </div>

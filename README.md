@@ -72,3 +72,6 @@ TODOS:
 - add form to handle submit on Enter
 - move hooks to separate hooks
 - add prettier 
+- add load previous messages on scroll up
+- loading and error hadle
+- add types
