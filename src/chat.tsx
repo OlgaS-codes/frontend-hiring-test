@@ -116,7 +116,12 @@ export const Chat: React.FC = () => {
     onData: ({ data }) => {
       const newMessage = data.data?.messageAdded;
       if (!newMessage) return;
-      setMessages((prev) => [...prev, newMessage]);
+      // setMessages((prev) => [...prev, newMessage]);
+      setMessages((prev) =>
+        prev.some((m) => m.id === newMessage.id)
+          ? prev.map((m) => (m.id === newMessage.id ? newMessage : m))
+          : [...prev, newMessage]
+      );
     },
   });
 
@@ -190,7 +195,7 @@ export const Chat: React.FC = () => {
   }
 
   if (loading) return <p>Loading...</p>;
-
+  console.log({ messages });
   return (
     <div className={css.root}>
       <div className={css.container}>
