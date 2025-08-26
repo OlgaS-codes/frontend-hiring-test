@@ -1,0 +1,335 @@
+import React from "react";
+import { ItemContent, Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import cn from "clsx";
+import {
+  type ApolloClient,
+  useApolloClient,
+  useMutation,
+  useSubscription,
+} from "@apollo/client";
+import { loadDevMessages } from "@apollo/client/dev";
+import { GET_LAST_MESSAGES, SEND_MESSAGE, NEW_MESSAGE } from "./chat.graphql";
+import {
+  MessageSender,
+  type Message,
+  type MessageEdge,
+  type Query,
+} from "../__generated__/resolvers-types";
+import css from "./chat.module.css";
+
+const Item: React.FC<Message> = ({ text, sender }) => {
+  return (
+    <div className={css.item}>
+      <div
+        className={cn(
+          css.message,
+          sender === MessageSender.Admin ? css.out : css.in
+        )}
+      >
+        {text}
+      </div>
+    </div>
+  );
+};
+
+const getItem: ItemContent<Message, unknown> = (_, data) => {
+  return <Item {...data} />;
+};
+
+const getLastMessages = async (
+  client: ApolloClient<object>,
+  count = 10
+): Promise<Array<MessageEdge> | undefined> => {
+  let hasNextPage = true;
+  let cursor: string | null = null;
+  let allMessages: Array<MessageEdge> = [];
+
+  while (hasNextPage) {
+    const { data }: { data: Query } = await client.query<Query>({
+      query: GET_LAST_MESSAGES,
+      variables: {
+        first: 10,
+        after: cursor,
+      },
+    });
+
+    allMessages = [...allMessages, ...data.messages.edges];
+    hasNextPage = data.messages.pageInfo.hasNextPage;
+    cursor = data.messages.pageInfo.endCursor;
+  }
+
+  return allMessages.slice(-count);
+};
+
+export const Chat: React.FC = () => {
+  const client = useApolloClient();
+  const [messages, setMessages] = React.useState<Message[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<unknown | null>(null);
+  const [text, setText] = React.useState("");
+  const [loadingMoreOldMessages, setLoadingMoreOldMessages] =
+    React.useState(false);
+  // const [hasMoreOldMessages, setHasMoreOldMessages] = React.useState(true); // remove later
+
+  const [pageInfo, setPageInfo] = React.useState<{
+    startCursor?: string | null;
+    endCursor?: string | null;
+    hasPreviousPage: boolean;
+    hasNextPage: boolean;
+  }>({
+    startCursor: null,
+    endCursor: null,
+    hasPreviousPage: true,
+    hasNextPage: true,
+  });
+
+  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+
+  const onSendMessage = () => {
+    sendMessage({
+      variables: {
+        text: text,
+      },
+    });
+    setText("");
+  };
+  const [
+    sendMessage,
+    { data, loading: sendMessageLoading, error: sendMessageError },
+  ] = useMutation(SEND_MESSAGE, {
+    update(cache, { data: { sendMessage } }) {
+      const data = cache.readQuery({
+        query: GET_LAST_MESSAGES,
+        variables: { first: 10, after: null },
+      });
+
+      if (!data) return;
+
+      cache.writeQuery({
+        query: GET_LAST_MESSAGES,
+        variables: { first: 10, after: null },
+        data: {
+          messages: {
+            ...data.messages,
+            edges: [
+              ...data.messages.edges,
+              {
+                __typename: "MessageEdge",
+                cursor: sendMessage.id,
+                node: sendMessage,
+              },
+            ],
+          },
+        },
+      });
+    },
+  });
+
+  useSubscription(NEW_MESSAGE, {
+    onData: ({ data }) => {
+      const newMessage = data.data?.messageAdded;
+      if (!newMessage) return;
+      // setMessages((prev) => [...prev, newMessage]);
+      setMessages((prev) =>
+        prev.some((m) => m.id === newMessage.id)
+          ? prev.map((m) => (m.id === newMessage.id ? newMessage : m))
+          : [...prev, newMessage]
+      );
+    },
+  });
+
+  const fetchLastPage = async (client: ApolloClient<object>, count = 10) => {
+    let cursor: string | null = null;
+    let hasPreviousPage = true;
+    let edges: MessageEdge[] = [];
+    let after = pageInfo.startCursor || "0";
+
+    while (hasPreviousPage) {
+      if (pageInfo.startCursor) {
+        after = (parseInt(pageInfo.startCursor, 10) - 10).toString();
+      }
+
+      const { data }: { data: Query } = await client.query({
+        query: GET_LAST_MESSAGES,
+        variables: { first: 10, after: after },
+        fetchPolicy: "network-only",
+      });
+
+      edges = [...edges, ...data.messages.edges];
+      cursor = data.messages.pageInfo.endCursor;
+      hasPreviousPage = parseInt(data.messages.pageInfo.startCursor) - 10 > 0;
+    }
+
+    const lastEdges = edges.slice(-count);
+
+    return {
+      messages: lastEdges.map(({ node }) => ({
+        id: String(node.id),
+        text: node.text,
+        status: node.status,
+        updatedAt: node.updatedAt,
+        sender: node.sender,
+      })),
+      pageInfo: {
+        ...(edges.length
+          ? {
+              startCursor: lastEdges[0]?.cursor ?? null,
+              endCursor: lastEdges[lastEdges.length - 1]?.cursor ?? null,
+            }
+          : { startCursor: null, endCursor: null }),
+        hasPreviousPage: edges.length > count,
+        hasNextPage: false,
+      },
+    };
+  };
+
+  React.useEffect(() => {
+    // const fetchLastMessages = async () => {
+    //   try {
+    //     setLoading(true);
+    //     const { data }: { data: Query } = await client.query({
+    //       query: GET_LAST_MESSAGES,
+    //       variables: { first: 10 },
+    //     });
+    //     const transformedMessages: Array<Message> =
+    //       data.messages.edges.map(({ node }) => ({
+    //         id: String(node.id),
+    //         text: node.text,
+    //         status: node.status,
+    //         updatedAt: node.updatedAt,
+    //         sender: node.sender,
+    //       })) || [];
+    //     setMessages(transformedMessages);
+    //     setPageInfo(data.messages.pageInfo);
+    //     // const lastMessageEdges = await getLastMessages(client, 10);
+    //     // const transformedMessages: Array<Message> =
+    //     //   lastMessageEdges?.map(({ node, cursor }) => ({
+    //     //     id: String(node.id),
+    //     //     text: node.text,
+    //     //     status: node.status,
+    //     //     updatedAt: node.updatedAt,
+    //     //     sender: node.sender,
+    //     //     cursor,
+    //     //   })) || [];
+    //     // setMessages(transformedMessages);
+    //     // setPageInfo(data.messages.pageInfo);
+    //   } catch (err) {
+    //     setError(err);
+    //     console.error("Error fetching messages:", err);
+    //   } finally {
+    //     setLoading(false);
+    //   }
+    // };
+    // fetchLastMessages();
+    const loadLast = async () => {
+      try {
+        setLoading(true);
+        const { messages: lastMsgs, pageInfo } = await fetchLastPage(
+          client,
+          10
+        );
+        setMessages(lastMsgs);
+        setPageInfo(pageInfo);
+      } catch (err) {
+        setError(err);
+        console.error("Error fetching messages:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadLast();
+  }, [client]);
+
+  const getOldMessages = async () => {
+    if (!pageInfo.hasPreviousPage || loadingMoreOldMessages) return;
+
+    setLoadingMoreOldMessages(true);
+    try {
+      // const firstMessage = messages[0];
+      // const beforeCursor = firstMessage?.id || null;
+      console.log("page info before load older messages", { pageInfo });
+      const { data }: { data: Query } = await client.query({
+        query: GET_LAST_MESSAGES,
+        variables: { first: 10, after: pageInfo.startCursor },
+        fetchPolicy: "network-only",
+      });
+
+      const older = data.messages.edges.map(({ node }) => ({
+        id: String(node.id),
+        text: node.text,
+        status: node.status,
+        updatedAt: node.updatedAt,
+        sender: node.sender,
+      }));
+
+      setMessages((prev) => [...older, ...prev]);
+      setPageInfo(data.messages.pageInfo);
+
+      // const newMessages: Message[] = data.messages.edges.map(
+      //   ({ node, cursor }) => ({
+      //     id: String(node.id),
+      //     text: node.text,
+      //     status: node.status,
+      //     updatedAt: node.updatedAt,
+      //     sender: node.sender,
+      //     cursor,
+      //   })
+      // );
+
+      // setMessages((prev) => [...newMessages, ...prev]);
+      // setHasMoreOldMessages(data.messages.pageInfo.hasPreviousPage);
+      // setPageInfo(data.messages.pageInfo);
+      console.log("fetch old messages ", pageInfo, { data });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMoreOldMessages(false);
+    }
+  };
+
+  const firstItemIndex = React.useMemo(
+    () => 1000 - messages.length,
+    [messages.length]
+  );
+
+  if (error) {
+    console.log(JSON.stringify(error, null, 2));
+    return null;
+  }
+
+  if (loading) return <p>Loading...</p>;
+  console.log({ messages });
+  console.log({ pageInfo });
+  return (
+    <div className={css.root}>
+      <div className={css.container}>
+        <Virtuoso
+          followOutput="auto"
+          className={css.list}
+          data={messages}
+          itemContent={getItem}
+          ref={virtuosoRef}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={messages.length - 1}
+          startReached={getOldMessages}
+        />
+      </div>
+      <div className={css.footer}>
+        <input
+          type="text"
+          className={css.textInput}
+          placeholder="Message text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button
+          onClick={() => {
+            onSendMessage();
+          }}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+};
