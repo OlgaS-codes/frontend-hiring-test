@@ -60,7 +60,7 @@ export const MESSAGE_UPDATED = gql`
   }
 `;
 
-export const NEW_MESSAGE = gql`
+export const NEW_MESSAGE_ADDED = gql`
   subscription OnMessageAdded {
     messageAdded {
       id

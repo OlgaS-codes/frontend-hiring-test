@@ -1,11 +1,13 @@
 import React from "react";
-import { ItemContent, Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { ItemContent, Virtuoso } from "react-virtuoso";
 import cn from "clsx";
 import {
   useApolloClient,
   type ApolloClient,
   useMutation,
+  useSubscription,
 } from "@apollo/client";
+
 import {
   MessageSender,
   type Message,
@@ -14,7 +16,11 @@ import {
   type MessagePageInfo,
 } from "../__generated__/resolvers-types";
 
-import { GET_LAST_MESSAGES, SEND_MESSAGE } from "./chat.graphql";
+import {
+  GET_LAST_MESSAGES,
+  NEW_MESSAGE_ADDED,
+  SEND_MESSAGE,
+} from "./chat.graphql";
 import css from "./chat.module.css";
 
 const MESSAGES_AMOUNT = 10;
@@ -57,6 +63,7 @@ const getItem: ItemContent<Message, unknown> = (_, data) => {
 
 export const Chat: React.FC = () => {
   const client = useApolloClient();
+
   const [loading, setLoading] = React.useState(true);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [pageInfo, setPageInfo] = React.useState<PageInfoType>({
@@ -70,7 +77,7 @@ export const Chat: React.FC = () => {
   const [firstItemIndex, setFirstItemIndex] = React.useState(
     START_INDEX - messages.length
   );
-
+  const { data: addedData } = useSubscription(NEW_MESSAGE_ADDED);
   const [text, setText] = React.useState("");
   const fetchLastPage = async (
     client: ApolloClient<object>,
@@ -219,6 +226,12 @@ export const Chat: React.FC = () => {
   }, [client]);
 
   console.log({ messages });
+
+  React.useEffect(() => {
+    if (addedData?.messageAdded) {
+      setMessages((prev) => [...prev, addedData.messageAdded]);
+    }
+  }, [addedData]);
 
   return (
     <div className={css.root}>
