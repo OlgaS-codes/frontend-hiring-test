@@ -1,23 +1,38 @@
 import React from "react";
 import { ItemContent, Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import cn from "clsx";
-import {
-  type ApolloClient,
-  useApolloClient,
-  useMutation,
-  useSubscription,
-} from "@apollo/client";
-import { loadDevMessages } from "@apollo/client/dev";
-import { GET_LAST_MESSAGES, SEND_MESSAGE, NEW_MESSAGE } from "./chat.graphql";
+import { useApolloClient, type ApolloClient } from "@apollo/client";
 import {
   MessageSender,
   type Message,
   type MessageEdge,
   type Query,
+  type MessagePageInfo,
 } from "../__generated__/resolvers-types";
+
+import { GET_LAST_MESSAGES } from "./chat.graphql";
 import css from "./chat.module.css";
 
-const Item: React.FC<Message> = ({ text, sender }) => {
+const MESSAGES_AMOUNT = 10;
+const ID_CURSOR_STEP = MESSAGES_AMOUNT + 1; // +1 because of indexsations start from 0
+const START_INDEX = 100;
+
+type PageInfoType = {
+  startCursor?: string | null;
+  endCursor?: string | null;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+};
+
+// const temp_data: Message[] = Array.from(Array(30), (_, index) => ({
+//   id: String(index),
+//   text: `Message number ${index}`,
+//   status: MessageStatus.Read,
+//   updatedAt: new Date().toISOString(),
+//   sender: index % 2 ? MessageSender.Admin : MessageSender.Customer,
+// }));
+
+const Item: React.FC<Message> = ({ text, sender, id }) => {
   return (
     <div className={css.item}>
       <div
@@ -26,7 +41,7 @@ const Item: React.FC<Message> = ({ text, sender }) => {
           sender === MessageSender.Admin ? css.out : css.in
         )}
       >
-        {text}
+        {id}: {text}
       </div>
     </div>
   );
@@ -36,112 +51,122 @@ const getItem: ItemContent<Message, unknown> = (_, data) => {
   return <Item {...data} />;
 };
 
-const getLastMessages = async (
-  client: ApolloClient<object>,
-  count = 10
-): Promise<Array<MessageEdge> | undefined> => {
-  let hasNextPage = true;
-  let cursor: string | null = null;
-  let allMessages: Array<MessageEdge> = [];
-
-  while (hasNextPage) {
-    const { data }: { data: Query } = await client.query<Query>({
-      query: GET_LAST_MESSAGES,
-      variables: {
-        first: 10,
-        after: cursor,
-      },
-    });
-
-    allMessages = [...allMessages, ...data.messages.edges];
-    hasNextPage = data.messages.pageInfo.hasNextPage;
-    cursor = data.messages.pageInfo.endCursor;
-  }
-
-  return allMessages.slice(-count);
-};
-
 export const Chat: React.FC = () => {
   const client = useApolloClient();
-  const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [messages, setMessages] = React.useState<Message[]>([]);
+  const [pageInfo, setPageInfo] = React.useState<PageInfoType>({
+    startCursor: null,
+    endCursor: null,
+    hasPreviousPage: true,
+    hasNextPage: true,
+  });
   const [error, setError] = React.useState<unknown | null>(null);
-  const [text, setText] = React.useState("");
-  const [loadingMoreOldMessages, setLoadingMoreOldMessages] =
-    React.useState(false);
-  const [hasMoreOldMessages, setHasMoreOldMessages] = React.useState(true);
-  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+  const [loadingPreviousPage, setLoadingPreviousPage] = React.useState(false);
+  const [firstItemIndex, setFirstItemIndex] = React.useState(
+    START_INDEX - messages.length
+  );
+  const fetchLastPage = async (
+    client: ApolloClient<object>,
+    count = MESSAGES_AMOUNT
+  ) => {
+    let edges: MessageEdge[] = [];
+    let hasNextPage = true;
+    let after: string | null = null;
 
-  const onSendMessage = () => {
-    sendMessage({
-      variables: {
-        text: text,
-      },
-    });
-    setText("");
+    while (hasNextPage) {
+      const { data }: { data: Query } = await client.query({
+        query: GET_LAST_MESSAGES,
+        variables: { first: MESSAGES_AMOUNT, after },
+        fetchPolicy: "network-only",
+      });
+
+      edges = [...edges, ...data.messages.edges];
+
+      const pageInfo: MessagePageInfo = data.messages.pageInfo;
+
+      hasNextPage = pageInfo.hasNextPage;
+      after = pageInfo.endCursor;
+    }
+
+    const lastEdges = edges.slice(-count);
+    const pageInfo = lastEdges.length
+      ? {
+          startCursor: lastEdges[0].cursor,
+          endCursor: lastEdges[lastEdges.length - 1].cursor,
+          hasPreviousPage: edges.length > count,
+          hasNextPage: false,
+        }
+      : {
+          startCursor: null,
+          endCursor: null,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        };
+
+    console.log({ pageInfo });
+    console.log({ lastEdges });
+    return {
+      messages: lastEdges.map(({ node }) => ({
+        id: String(node.id),
+        text: node.text,
+        status: node.status,
+        updatedAt: node.updatedAt,
+        sender: node.sender,
+      })),
+      pageInfo,
+    };
   };
-  const [
-    sendMessage,
-    { data, loading: sendMessageLoading, error: sendMessageError },
-  ] = useMutation(SEND_MESSAGE, {
-    update(cache, { data: { sendMessage } }) {
-      const data = cache.readQuery({
-        query: GET_LAST_MESSAGES,
-        variables: { first: 10, after: null },
-      });
 
-      if (!data) return;
+  const fetchPreviousPage = async () => {
+    console.log("call fetch previous 10 messages");
 
-      cache.writeQuery({
-        query: GET_LAST_MESSAGES,
-        variables: { first: 10, after: null },
-        data: {
-          messages: {
-            ...data.messages,
-            edges: [
-              ...data.messages.edges,
-              {
-                __typename: "MessageEdge",
-                cursor: sendMessage.id,
-                node: sendMessage,
-              },
-            ],
-          },
-        },
-      });
-    },
-  });
+    if (!pageInfo.hasPreviousPage) {
+      console.log("No more messages in a history");
+      return;
+    }
 
-  useSubscription(NEW_MESSAGE, {
-    onData: ({ data }) => {
-      const newMessage = data.data?.messageAdded;
-      if (!newMessage) return;
-      // setMessages((prev) => [...prev, newMessage]);
-      setMessages((prev) =>
-        prev.some((m) => m.id === newMessage.id)
-          ? prev.map((m) => (m.id === newMessage.id ? newMessage : m))
-          : [...prev, newMessage]
+    try {
+      setLoadingPreviousPage(true);
+
+      const previousCursor = String(
+        Number(pageInfo.startCursor) - ID_CURSOR_STEP
       );
-    },
-  });
 
-  loadDevMessages(); // TODO: remove
+      const { data }: { data: Query } = await client.query({
+        query: GET_LAST_MESSAGES,
+        variables: { first: MESSAGES_AMOUNT, after: previousCursor },
+        fetchPolicy: "network-only",
+      });
+
+      const previosMessages = data.messages.edges.map(({ node }) => ({
+        id: String(node.id),
+        text: node.text,
+        status: node.status,
+        updatedAt: node.updatedAt,
+        sender: node.sender,
+      }));
+      setMessages((prev) => [...previosMessages, ...prev]);
+      setPageInfo(data.messages.pageInfo);
+      const nextFirstItemIndex = START_INDEX - messages.length;
+      setFirstItemIndex(nextFirstItemIndex);
+
+      console.log("fetchPreviousPage", { data });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   React.useEffect(() => {
-    const fetchLastMessages = async () => {
+    const loadLast = async () => {
       try {
         setLoading(true);
-        const lastMessageEdges = await getLastMessages(client, 10);
-
-        const transformedMessages: Array<Message> =
-          lastMessageEdges?.map(({ node }) => ({
-            id: String(node.id),
-            text: node.text,
-            status: node.status,
-            updatedAt: node.updatedAt,
-            sender: node.sender,
-          })) || [];
-
-        setMessages(transformedMessages);
+        const { messages: lastMsgs, pageInfo } = await fetchLastPage(
+          client,
+          10
+        );
+        setMessages(lastMsgs);
+        setPageInfo(pageInfo);
       } catch (err) {
         setError(err);
         console.error("Error fetching messages:", err);
@@ -149,65 +174,24 @@ export const Chat: React.FC = () => {
         setLoading(false);
       }
     };
-
-    fetchLastMessages();
+    loadLast();
   }, [client]);
 
-  const getOldMessages = async () => {
-    if (!hasMoreOldMessages || loadingMoreOldMessages) return;
-
-    setLoadingMoreOldMessages(true);
-    try {
-      const firstMessage = messages[0];
-      const beforeCursor = firstMessage?.id || null;
-
-      const { data }: { data: Query } = await client.query({
-        query: GET_LAST_MESSAGES,
-        variables: { first: 10, before: beforeCursor },
-        fetchPolicy: "network-only",
-      });
-
-      const newMessages: Message[] = data.messages.edges.map(({ node }) => ({
-        id: String(node.id),
-        text: node.text,
-        status: node.status,
-        updatedAt: node.updatedAt,
-        sender: node.sender,
-      }));
-
-      setMessages((prev) => [...newMessages, ...prev]);
-      setHasMoreOldMessages(data.messages.pageInfo.hasPreviousPage);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingMoreOldMessages(false);
-    }
-  };
-
-  const firstItemIndex = React.useMemo(
-    () => 1000 - messages.length,
-    [messages.length]
-  );
-
-  if (error) {
-    console.log(JSON.stringify(error, null, 2));
-    return null;
-  }
-
-  if (loading) return <p>Loading...</p>;
   console.log({ messages });
+
+  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+
   return (
     <div className={css.root}>
       <div className={css.container}>
         <Virtuoso
-          followOutput="auto"
           className={css.list}
           data={messages}
           itemContent={getItem}
-          ref={virtuosoRef}
-          firstItemIndex={firstItemIndex}
+          startReached={fetchPreviousPage}
+          followOutput="auto"
           initialTopMostItemIndex={messages.length - 1}
-          startReached={getOldMessages}
+          firstItemIndex={Math.max(0, firstItemIndex)} // !!!
         />
       </div>
       <div className={css.footer}>
@@ -215,16 +199,8 @@ export const Chat: React.FC = () => {
           type="text"
           className={css.textInput}
           placeholder="Message text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
         />
-        <button
-          onClick={() => {
-            onSendMessage();
-          }}
-        >
-          Send
-        </button>
+        <button>Send</button>
       </div>
     </div>
   );
