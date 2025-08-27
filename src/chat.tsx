@@ -24,7 +24,7 @@ import {
 import css from "./chat.module.css";
 
 const MESSAGES_AMOUNT = 10;
-const ID_CURSOR_STEP = MESSAGES_AMOUNT + 1; // +1 because of indexsations start from 0
+const ID_CURSOR_STEP = MESSAGES_AMOUNT + 1; // +1 because of index starts from 0
 const START_INDEX = 100;
 
 type PageInfoType = {
@@ -34,15 +34,7 @@ type PageInfoType = {
   hasNextPage: boolean;
 };
 
-// const temp_data: Message[] = Array.from(Array(30), (_, index) => ({
-//   id: String(index),
-//   text: `Message number ${index}`,
-//   status: MessageStatus.Read,
-//   updatedAt: new Date().toISOString(),
-//   sender: index % 2 ? MessageSender.Admin : MessageSender.Customer,
-// }));
-
-const Item: React.FC<Message> = ({ text, sender, id }) => {
+const Item: React.FC<Message> = ({ text, sender }) => {
   return (
     <div className={css.item}>
       <div
@@ -51,7 +43,7 @@ const Item: React.FC<Message> = ({ text, sender, id }) => {
           sender === MessageSender.Admin ? css.out : css.in
         )}
       >
-        {id}: {text}
+        {text}
       </div>
     </div>
   );
@@ -64,7 +56,7 @@ const getItem: ItemContent<Message, unknown> = (_, data) => {
 export const Chat: React.FC = () => {
   const client = useApolloClient();
 
-  const [loading, setLoading] = React.useState(true);
+  const [loadingMessages, setLoadingMessages] = React.useState(true);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [pageInfo, setPageInfo] = React.useState<PageInfoType>({
     startCursor: null,
@@ -117,8 +109,6 @@ export const Chat: React.FC = () => {
           hasNextPage: false,
         };
 
-    console.log({ pageInfo });
-    console.log({ lastEdges });
     return {
       messages: lastEdges.map(({ node }) => ({
         id: String(node.id),
@@ -132,8 +122,6 @@ export const Chat: React.FC = () => {
   };
 
   const fetchPreviousPage = async () => {
-    console.log("call fetch previous 10 messages");
-
     if (!pageInfo.hasPreviousPage) {
       console.log("No more messages in a history");
       return;
@@ -163,8 +151,6 @@ export const Chat: React.FC = () => {
       setPageInfo(data.messages.pageInfo);
       const nextFirstItemIndex = START_INDEX - messages.length;
       setFirstItemIndex(nextFirstItemIndex);
-
-      console.log("fetchPreviousPage", { data });
     } catch (e) {
       console.error(e);
     }
@@ -179,6 +165,19 @@ export const Chat: React.FC = () => {
       cache.modify({
         fields: {
           messages(existingMessages = { edges: [], pageInfo: {} }) {
+            const edges = existingMessages.edges || [];
+
+            const existingIndex = edges.findIndex(
+              (edge) => edge.node.id === newMessage.id
+            );
+
+            if (
+              existingIndex >= 0 &&
+              edges[existingIndex].node.updatedAt > newMessage.updatedAt
+            ) {
+              return existingMessages;
+            }
+
             return {
               ...existingMessages,
               edges: [
@@ -208,7 +207,7 @@ export const Chat: React.FC = () => {
   React.useEffect(() => {
     const loadLast = async () => {
       try {
-        setLoading(true);
+        setLoadingMessages(true);
         const { messages: lastMsgs, pageInfo } = await fetchLastPage(
           client,
           10
@@ -219,13 +218,11 @@ export const Chat: React.FC = () => {
         setError(err);
         console.error("Error fetching messages:", err);
       } finally {
-        setLoading(false);
+        setLoadingMessages(false);
       }
     };
     loadLast();
   }, [client]);
-
-  console.log({ messages });
 
   React.useEffect(() => {
     if (addedData?.messageAdded) {
