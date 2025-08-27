@@ -49,9 +49,10 @@ const Item: React.FC<Message> = ({ text, sender }) => {
   );
 };
 
-const getItem: ItemContent<Message, unknown> = (_, data) => {
-  return <Item {...data} />;
-};
+const getItem: ItemContent<Message, unknown> = React.useCallback(
+  (_, data) => <Item {...data} />,
+  []
+);
 
 const ChatInput = ({ onSend }: { onSend: (text: string) => void }) => {
   const [text, setText] = React.useState("");
@@ -125,9 +126,8 @@ export const Chat: React.FC = () => {
     START_INDEX - messages.length
   );
 
-  console.log({ firstItemIndex });
   const { data: addedData } = useSubscription(NEW_MESSAGE_ADDED);
-  const [text, setText] = React.useState("");
+
   const fetchLastPage = async (
     client: ApolloClient<object>,
     count = MESSAGES_AMOUNT
