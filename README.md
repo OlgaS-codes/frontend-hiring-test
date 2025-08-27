@@ -76,3 +76,4 @@ TODOS:
 - loading and error hadle
 - add types
 - add sendMessage loading and error handling
+- chat refreshes on every type, reduce it
