@@ -80,6 +80,34 @@ const ChatInput = ({ onSend }: { onSend: (text: string) => void }) => {
   );
 };
 
+type ChatWindowProps = {
+  messages: Message[];
+  getItem: ItemContent<Message, unknown>;
+  fetchPreviousPage: () => Promise<void>;
+  firstItemIndex: number;
+};
+
+const ChatWindow = React.memo(
+  ({
+    messages,
+    getItem,
+    fetchPreviousPage,
+    firstItemIndex,
+  }: ChatWindowProps) => (
+    <div className={css.container}>
+      <Virtuoso
+        className={css.list}
+        data={messages}
+        itemContent={getItem}
+        startReached={fetchPreviousPage}
+        followOutput="auto"
+        initialTopMostItemIndex={messages.length - 1}
+        firstItemIndex={Math.max(0, firstItemIndex)}
+      />
+    </div>
+  )
+);
+
 export const Chat: React.FC = () => {
   const client = useApolloClient();
 
@@ -96,6 +124,8 @@ export const Chat: React.FC = () => {
   const [firstItemIndex, setFirstItemIndex] = React.useState(
     START_INDEX - messages.length
   );
+
+  console.log({ firstItemIndex });
   const { data: addedData } = useSubscription(NEW_MESSAGE_ADDED);
   const [text, setText] = React.useState("");
   const fetchLastPage = async (
@@ -255,20 +285,15 @@ export const Chat: React.FC = () => {
       setMessages((prev) => [...prev, addedData.messageAdded]);
     }
   }, [addedData]);
-  console.log("fire");
+
   return (
     <div className={css.root}>
-      <div className={css.container}>
-        <Virtuoso
-          className={css.list}
-          data={messages}
-          itemContent={getItem}
-          startReached={fetchPreviousPage}
-          followOutput="auto"
-          initialTopMostItemIndex={messages.length - 1}
-          firstItemIndex={Math.max(0, firstItemIndex)}
-        />
-      </div>
+      <ChatWindow
+        messages={messages}
+        getItem={getItem}
+        fetchPreviousPage={fetchPreviousPage}
+        firstItemIndex={Math.max(0, firstItemIndex)}
+      />
       <ChatInput onSend={onSendMessage} />
     </div>
   );
