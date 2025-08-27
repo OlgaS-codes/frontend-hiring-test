@@ -49,12 +49,9 @@ const Item: React.FC<Message> = ({ text, sender }) => {
   );
 };
 
-const getItem: ItemContent<Message, unknown> = React.useCallback(
-  (_, data) => <Item {...data} />,
-  []
-);
-
-const ChatInput = ({ onSend }: { onSend: (text: string) => void }) => {
+const ChatInput: React.FC<{ onSend: (text: string) => void }> = ({
+  onSend,
+}) => {
   const [text, setText] = React.useState("");
   const onSendMessage = () => {
     onSend(text);
@@ -94,26 +91,52 @@ const ChatWindow = React.memo(
     getItem,
     fetchPreviousPage,
     firstItemIndex,
-  }: ChatWindowProps) => (
-    <div className={css.container}>
-      <Virtuoso
-        className={css.list}
-        data={messages}
-        itemContent={getItem}
-        startReached={fetchPreviousPage}
-        followOutput="auto"
-        initialTopMostItemIndex={messages.length - 1}
-        firstItemIndex={Math.max(0, firstItemIndex)}
-      />
-    </div>
-  )
+  }: ChatWindowProps) => {
+    return (
+      <div className={css.container}>
+        <Virtuoso
+          className={css.list}
+          data={messages}
+          itemContent={getItem}
+          startReached={fetchPreviousPage}
+          followOutput="auto"
+          initialTopMostItemIndex={messages.length - 1}
+          firstItemIndex={Math.max(0, firstItemIndex)}
+        />
+      </div>
+    );
+  }
 );
+
+const ChatLoading: React.FC<{
+  loadingMessages: boolean;
+  loadingPreviousPage: boolean;
+}> = ({ loadingMessages, loadingPreviousPage }) =>
+  (loadingMessages || loadingPreviousPage) && (
+    <div
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        background: "rgba(255,255,255,0.9)",
+        padding: "1rem 2rem",
+        borderRadius: "12px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+        zIndex: 10,
+      }}
+    >
+      {loadingPreviousPage && "Loading older messages…"}
+      {loadingMessages && "Loading chat…"}
+    </div>
+  );
 
 export const Chat: React.FC = () => {
   const client = useApolloClient();
 
   const [loadingMessages, setLoadingMessages] = React.useState(true);
   const [messages, setMessages] = React.useState<Message[]>([]);
+
   const [pageInfo, setPageInfo] = React.useState<PageInfoType>({
     startCursor: null,
     endCursor: null,
@@ -127,6 +150,11 @@ export const Chat: React.FC = () => {
   );
 
   const { data: addedData } = useSubscription(NEW_MESSAGE_ADDED);
+
+  const getItem: ItemContent<Message, unknown> = React.useCallback(
+    (_, data) => <Item {...data} />,
+    []
+  );
 
   const fetchLastPage = async (
     client: ApolloClient<object>,
@@ -208,6 +236,7 @@ export const Chat: React.FC = () => {
       setPageInfo(data.messages.pageInfo);
       const nextFirstItemIndex = START_INDEX - messages.length;
       setFirstItemIndex(nextFirstItemIndex);
+      setLoadingPreviousPage(false);
     } catch (e) {
       console.error(e);
     }
@@ -293,6 +322,11 @@ export const Chat: React.FC = () => {
         getItem={getItem}
         fetchPreviousPage={fetchPreviousPage}
         firstItemIndex={Math.max(0, firstItemIndex)}
+      />
+
+      <ChatLoading
+        loadingMessages={loadingMessages}
+        loadingPreviousPage={loadingPreviousPage}
       />
       <ChatInput onSend={onSendMessage} />
     </div>
