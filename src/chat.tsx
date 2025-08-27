@@ -49,15 +49,94 @@ const Item: React.FC<Message> = ({ text, sender }) => {
   );
 };
 
-const getItem: ItemContent<Message, unknown> = (_, data) => {
-  return <Item {...data} />;
+const ChatInput: React.FC<{ onSend: (text: string) => void }> = ({
+  onSend,
+}) => {
+  const [text, setText] = React.useState("");
+  const onSendMessage = () => {
+    onSend(text);
+    setText("");
+  };
+
+  return (
+    <div className={css.footer}>
+      <input
+        type="text"
+        className={css.textInput}
+        placeholder="Message text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <button
+        onClick={() => {
+          onSendMessage();
+        }}
+      >
+        Send
+      </button>
+    </div>
+  );
 };
+
+type ChatWindowProps = {
+  messages: Message[];
+  getItem: ItemContent<Message, unknown>;
+  fetchPreviousPage: () => Promise<void>;
+  firstItemIndex: number;
+};
+
+const ChatWindow = React.memo(
+  ({
+    messages,
+    getItem,
+    fetchPreviousPage,
+    firstItemIndex,
+  }: ChatWindowProps) => {
+    return (
+      <div className={css.container}>
+        <Virtuoso
+          className={css.list}
+          data={messages}
+          itemContent={getItem}
+          startReached={fetchPreviousPage}
+          followOutput="auto"
+          initialTopMostItemIndex={messages.length - 1}
+          firstItemIndex={Math.max(0, firstItemIndex)}
+        />
+      </div>
+    );
+  }
+);
+
+const ChatLoading: React.FC<{
+  loadingMessages: boolean;
+  loadingPreviousPage: boolean;
+}> = ({ loadingMessages, loadingPreviousPage }) =>
+  (loadingMessages || loadingPreviousPage) && (
+    <div
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        background: "rgba(255,255,255,0.9)",
+        padding: "1rem 2rem",
+        borderRadius: "12px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+        zIndex: 10,
+      }}
+    >
+      {loadingPreviousPage && "Loading older messages…"}
+      {loadingMessages && "Loading chat…"}
+    </div>
+  );
 
 export const Chat: React.FC = () => {
   const client = useApolloClient();
 
   const [loadingMessages, setLoadingMessages] = React.useState(true);
   const [messages, setMessages] = React.useState<Message[]>([]);
+
   const [pageInfo, setPageInfo] = React.useState<PageInfoType>({
     startCursor: null,
     endCursor: null,
@@ -69,8 +148,14 @@ export const Chat: React.FC = () => {
   const [firstItemIndex, setFirstItemIndex] = React.useState(
     START_INDEX - messages.length
   );
+
   const { data: addedData } = useSubscription(NEW_MESSAGE_ADDED);
-  const [text, setText] = React.useState("");
+
+  const getItem: ItemContent<Message, unknown> = React.useCallback(
+    (_, data) => <Item {...data} />,
+    []
+  );
+
   const fetchLastPage = async (
     client: ApolloClient<object>,
     count = MESSAGES_AMOUNT
@@ -151,6 +236,7 @@ export const Chat: React.FC = () => {
       setPageInfo(data.messages.pageInfo);
       const nextFirstItemIndex = START_INDEX - messages.length;
       setFirstItemIndex(nextFirstItemIndex);
+      setLoadingPreviousPage(false);
     } catch (e) {
       console.error(e);
     }
@@ -195,13 +281,12 @@ export const Chat: React.FC = () => {
     },
   });
 
-  const onSendMessage = () => {
+  const onSendMessage = (text: string) => {
     sendMessage({
       variables: {
         text,
       },
     });
-    setText("");
   };
 
   React.useEffect(() => {
@@ -232,33 +317,18 @@ export const Chat: React.FC = () => {
 
   return (
     <div className={css.root}>
-      <div className={css.container}>
-        <Virtuoso
-          className={css.list}
-          data={messages}
-          itemContent={getItem}
-          startReached={fetchPreviousPage}
-          followOutput="auto"
-          initialTopMostItemIndex={messages.length - 1}
-          firstItemIndex={Math.max(0, firstItemIndex)}
-        />
-      </div>
-      <div className={css.footer}>
-        <input
-          type="text"
-          className={css.textInput}
-          placeholder="Message text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <button
-          onClick={() => {
-            onSendMessage();
-          }}
-        >
-          Send
-        </button>
-      </div>
+      <ChatWindow
+        messages={messages}
+        getItem={getItem}
+        fetchPreviousPage={fetchPreviousPage}
+        firstItemIndex={Math.max(0, firstItemIndex)}
+      />
+
+      <ChatLoading
+        loadingMessages={loadingMessages}
+        loadingPreviousPage={loadingPreviousPage}
+      />
+      <ChatInput onSend={onSendMessage} />
     </div>
   );
 };
