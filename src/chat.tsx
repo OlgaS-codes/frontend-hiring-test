@@ -53,6 +53,33 @@ const getItem: ItemContent<Message, unknown> = (_, data) => {
   return <Item {...data} />;
 };
 
+const ChatInput = ({ onSend }: { onSend: (text: string) => void }) => {
+  const [text, setText] = React.useState("");
+  const onSendMessage = () => {
+    onSend(text);
+    setText("");
+  };
+
+  return (
+    <div className={css.footer}>
+      <input
+        type="text"
+        className={css.textInput}
+        placeholder="Message text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <button
+        onClick={() => {
+          onSendMessage();
+        }}
+      >
+        Send
+      </button>
+    </div>
+  );
+};
+
 export const Chat: React.FC = () => {
   const client = useApolloClient();
 
@@ -195,13 +222,12 @@ export const Chat: React.FC = () => {
     },
   });
 
-  const onSendMessage = () => {
+  const onSendMessage = (text: string) => {
     sendMessage({
       variables: {
         text,
       },
     });
-    setText("");
   };
 
   React.useEffect(() => {
@@ -229,7 +255,7 @@ export const Chat: React.FC = () => {
       setMessages((prev) => [...prev, addedData.messageAdded]);
     }
   }, [addedData]);
-
+  console.log("fire");
   return (
     <div className={css.root}>
       <div className={css.container}>
@@ -243,22 +269,7 @@ export const Chat: React.FC = () => {
           firstItemIndex={Math.max(0, firstItemIndex)}
         />
       </div>
-      <div className={css.footer}>
-        <input
-          type="text"
-          className={css.textInput}
-          placeholder="Message text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <button
-          onClick={() => {
-            onSendMessage();
-          }}
-        >
-          Send
-        </button>
-      </div>
+      <ChatInput onSend={onSendMessage} />
     </div>
   );
 };
