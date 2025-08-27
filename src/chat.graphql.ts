@@ -36,31 +36,7 @@ export const SEND_MESSAGE = gql`
   }
 `;
 
-export const UPDATE_CACHE_FRAGMENT = gql`
-  fragment MessageData on Message {
-    id
-    text
-    status
-    updatedAt
-    sender
-    __typename
-  }
-`;
-
-export const MESSAGE_UPDATED = gql`
-  subscription OnMessageUpdated {
-    messageUpdated {
-      id
-      text
-      status
-      updatedAt
-      sender
-      __typename
-    }
-  }
-`;
-
-export const NEW_MESSAGE = gql`
+export const NEW_MESSAGE_ADDED = gql`
   subscription OnMessageAdded {
     messageAdded {
       id

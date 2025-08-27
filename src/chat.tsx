@@ -1,7 +1,13 @@
 import React from "react";
-import { ItemContent, Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { ItemContent, Virtuoso } from "react-virtuoso";
 import cn from "clsx";
-import { useApolloClient, type ApolloClient } from "@apollo/client";
+import {
+  useApolloClient,
+  type ApolloClient,
+  useMutation,
+  useSubscription,
+} from "@apollo/client";
+
 import {
   MessageSender,
   type Message,
@@ -10,11 +16,15 @@ import {
   type MessagePageInfo,
 } from "../__generated__/resolvers-types";
 
-import { GET_LAST_MESSAGES } from "./chat.graphql";
+import {
+  GET_LAST_MESSAGES,
+  NEW_MESSAGE_ADDED,
+  SEND_MESSAGE,
+} from "./chat.graphql";
 import css from "./chat.module.css";
 
 const MESSAGES_AMOUNT = 10;
-const ID_CURSOR_STEP = MESSAGES_AMOUNT + 1; // +1 because of indexsations start from 0
+const ID_CURSOR_STEP = MESSAGES_AMOUNT + 1; // +1 because of index starts from 0
 const START_INDEX = 100;
 
 type PageInfoType = {
@@ -24,15 +34,7 @@ type PageInfoType = {
   hasNextPage: boolean;
 };
 
-// const temp_data: Message[] = Array.from(Array(30), (_, index) => ({
-//   id: String(index),
-//   text: `Message number ${index}`,
-//   status: MessageStatus.Read,
-//   updatedAt: new Date().toISOString(),
-//   sender: index % 2 ? MessageSender.Admin : MessageSender.Customer,
-// }));
-
-const Item: React.FC<Message> = ({ text, sender, id }) => {
+const Item: React.FC<Message> = ({ text, sender }) => {
   return (
     <div className={css.item}>
       <div
@@ -41,7 +43,7 @@ const Item: React.FC<Message> = ({ text, sender, id }) => {
           sender === MessageSender.Admin ? css.out : css.in
         )}
       >
-        {id}: {text}
+        {text}
       </div>
     </div>
   );
@@ -53,7 +55,8 @@ const getItem: ItemContent<Message, unknown> = (_, data) => {
 
 export const Chat: React.FC = () => {
   const client = useApolloClient();
-  const [loading, setLoading] = React.useState(true);
+
+  const [loadingMessages, setLoadingMessages] = React.useState(true);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [pageInfo, setPageInfo] = React.useState<PageInfoType>({
     startCursor: null,
@@ -66,6 +69,8 @@ export const Chat: React.FC = () => {
   const [firstItemIndex, setFirstItemIndex] = React.useState(
     START_INDEX - messages.length
   );
+  const { data: addedData } = useSubscription(NEW_MESSAGE_ADDED);
+  const [text, setText] = React.useState("");
   const fetchLastPage = async (
     client: ApolloClient<object>,
     count = MESSAGES_AMOUNT
@@ -104,8 +109,6 @@ export const Chat: React.FC = () => {
           hasNextPage: false,
         };
 
-    console.log({ pageInfo });
-    console.log({ lastEdges });
     return {
       messages: lastEdges.map(({ node }) => ({
         id: String(node.id),
@@ -119,8 +122,6 @@ export const Chat: React.FC = () => {
   };
 
   const fetchPreviousPage = async () => {
-    console.log("call fetch previous 10 messages");
-
     if (!pageInfo.hasPreviousPage) {
       console.log("No more messages in a history");
       return;
@@ -150,17 +151,63 @@ export const Chat: React.FC = () => {
       setPageInfo(data.messages.pageInfo);
       const nextFirstItemIndex = START_INDEX - messages.length;
       setFirstItemIndex(nextFirstItemIndex);
-
-      console.log("fetchPreviousPage", { data });
     } catch (e) {
       console.error(e);
     }
   };
 
+  const [sendMessage] = useMutation(SEND_MESSAGE, {
+    update(cache, { data }) {
+      if (!data?.sendMessage) return;
+
+      const newMessage = data.sendMessage;
+
+      cache.modify({
+        fields: {
+          messages(existingMessages = { edges: [], pageInfo: {} }) {
+            const edges = existingMessages.edges || [];
+
+            const existingIndex = edges.findIndex(
+              (edge) => edge.node.id === newMessage.id
+            );
+
+            if (
+              existingIndex >= 0 &&
+              edges[existingIndex].node.updatedAt > newMessage.updatedAt
+            ) {
+              return existingMessages;
+            }
+
+            return {
+              ...existingMessages,
+              edges: [
+                ...existingMessages.edges,
+                {
+                  __typename: "MessageEdge",
+                  cursor: newMessage.id,
+                  node: newMessage,
+                },
+              ],
+            };
+          },
+        },
+      });
+    },
+  });
+
+  const onSendMessage = () => {
+    sendMessage({
+      variables: {
+        text,
+      },
+    });
+    setText("");
+  };
+
   React.useEffect(() => {
     const loadLast = async () => {
       try {
-        setLoading(true);
+        setLoadingMessages(true);
         const { messages: lastMsgs, pageInfo } = await fetchLastPage(
           client,
           10
@@ -171,15 +218,17 @@ export const Chat: React.FC = () => {
         setError(err);
         console.error("Error fetching messages:", err);
       } finally {
-        setLoading(false);
+        setLoadingMessages(false);
       }
     };
     loadLast();
   }, [client]);
 
-  console.log({ messages });
-
-  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+  React.useEffect(() => {
+    if (addedData?.messageAdded) {
+      setMessages((prev) => [...prev, addedData.messageAdded]);
+    }
+  }, [addedData]);
 
   return (
     <div className={css.root}>
@@ -191,7 +240,7 @@ export const Chat: React.FC = () => {
           startReached={fetchPreviousPage}
           followOutput="auto"
           initialTopMostItemIndex={messages.length - 1}
-          firstItemIndex={Math.max(0, firstItemIndex)} // !!!
+          firstItemIndex={Math.max(0, firstItemIndex)}
         />
       </div>
       <div className={css.footer}>
@@ -199,8 +248,16 @@ export const Chat: React.FC = () => {
           type="text"
           className={css.textInput}
           placeholder="Message text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
         />
-        <button>Send</button>
+        <button
+          onClick={() => {
+            onSendMessage();
+          }}
+        >
+          Send
+        </button>
       </div>
     </div>
   );
